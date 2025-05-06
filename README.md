@@ -198,4 +198,4 @@ You've come to the right place :-) :
 [![Test Coverage](https://api.codeclimate.com/v1/badges/93035ef5fba33901d479/test_coverage)](https://codeclimate.com/github/sverweij/dependency-cruiser/test_coverage)
 [![total downloads on npm](https://img.shields.io/npm/dt/dependency-cruiser.svg?maxAge=2591999)](https://npmjs.com/package/dependency-cruiser)
 
-Made with :metal: in Holland.
+Made with :metal: in Holland. Updated by Devin.
