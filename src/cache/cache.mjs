@@ -131,7 +131,12 @@ export default class Cache {
   #compact(pPayload, pCompress) {
     if (pCompress) {
       /**
-       * we landed on brotli with BROTLI_MIN_QUALITY because:
+       * Enhanced compression strategy:
+       * - Use BROTLI_MIN_QUALITY for optimal speed/compression balance
+       * - Add size threshold to avoid compressing small payloads
+       * - Optimize window size for typical dependency graph sizes
+       *
+       * We landed on brotli with BROTLI_MIN_QUALITY because:
        * - even with BROTLI_MIN_QUALITY it compresses better than gzip
        *   (regardless of compression level)
        * - at BROTLI_MIN_QUALITY it's faster than gzip
@@ -146,10 +151,17 @@ export default class Cache {
        * As sync or async doesn't _really_
        * matter for the cli, we're using the sync version here.
        */
+      const payloadSize = Buffer.byteLength(pPayload, 'utf8');
+      
+      if (payloadSize < 1024) {
+        return pPayload;
+      }
+      
       return brotliCompressSync(pPayload, {
         params: {
           [zlibConstants.BROTLI_PARAM_QUALITY]:
             zlibConstants.BROTLI_MIN_QUALITY,
+          [zlibConstants.BROTLI_PARAM_LGWIN]: 20,
         },
       });
     }
