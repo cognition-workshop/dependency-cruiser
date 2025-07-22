@@ -68,19 +68,24 @@ export default class IndexedModuleGraph {
   ) {
     /** @type {string[]} */
     let lReturnValue = [];
-    const lModule = this.findVertexByName(pName);
+    const lVertex = this.findVertexByName(pName);
 
-    if (lModule && (!pMaxDepth || pDepth <= pMaxDepth)) {
-      let lDependents = lModule.dependents || [];
+    if (lVertex && (!pMaxDepth || pDepth <= pMaxDepth)) {
+      let lDependents = lVertex.dependents || [];
       const lVisited = pVisited.add(pName);
 
-      // @TODO this works for modules, but not for folders yet
+      // Handle both module and folder dependents
       if (lDependents.length > 0) {
-        lDependents
-          .filter((pDependent) => !lVisited.has(pDependent))
-          .forEach((pDependent) =>
+        // Extract dependent names - handle both string arrays (modules) and object arrays (folders)
+        const lDependentNames = lDependents.map((pDependent) => 
+          typeof pDependent === 'string' ? pDependent : pDependent.name
+        );
+        
+        lDependentNames
+          .filter((pDependentName) => !lVisited.has(pDependentName))
+          .forEach((pDependentName) =>
             this.findTransitiveDependents(
-              pDependent,
+              pDependentName,
               pMaxDepth,
               pDepth + 1,
               lVisited,
@@ -110,13 +115,14 @@ export default class IndexedModuleGraph {
   ) {
     /** @type {string[]} */
     let lReturnValue = [];
-    const lModule = this.findVertexByName(pName);
+    const lVertex = this.findVertexByName(pName);
 
-    if (lModule && (!pMaxDepth || pDepth <= pMaxDepth)) {
-      let lDependencies = lModule.dependencies;
+    if (lVertex && (!pMaxDepth || pDepth <= pMaxDepth)) {
+      let lDependencies = lVertex.dependencies;
       const lVisited = pVisited.add(pName);
 
       if (lDependencies.length > 0) {
+        // Handle both module and folder dependencies - both use .name property
         lDependencies
           .map(({ name }) => name)
           .filter((pDependency) => !lVisited.has(pDependency))
