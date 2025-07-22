@@ -1,6 +1,8 @@
 /* eslint-disable no-inline-comments */
 // @ts-check
 import { join } from "node:path/posix";
+import { readFileSync } from "node:fs";
+import ignore from "ignore";
 import {
   getFileHashSync,
   excludeFilter,
@@ -18,14 +20,33 @@ import findAllFiles from "#utl/find-all-files.mjs";
  */
 
 /**
+ * @param {string} pBaseDirectory
+ * @returns {(pFileName: string) => boolean}
+ */
+function createGitignoreFilter(pBaseDirectory) {
+  try {
+    const lGitignoreContent = readFileSync(join(pBaseDirectory, ".gitignore"), "utf8");
+    const lIgnoreFilter = ignore()
+      .add(lGitignoreContent)
+      .add([".git"])
+      .createFilter();
+    return lIgnoreFilter;
+  } catch (pError) {
+    return () => true;
+  }
+}
+
+/**
  * @param {Set<string>} pFileSet
  * @param {typeof getFileHashSync} pFileHashFunction
+ * @param {(pFileName: string) => boolean} pGitignoreFilter
  * @returns {(pModule:IModule) => IRevisionChange}
  */
 function diffCachedModuleAgainstFileSet(
   pFileSet,
   pBaseDirectory,
   pFileHashFunction = getFileHashSync,
+  pGitignoreFilter,
 ) {
   return (pModule) => {
     if (!moduleIsInterestingForDiff(pModule)) {
@@ -33,6 +54,9 @@ function diffCachedModuleAgainstFileSet(
     }
 
     if (!pFileSet.has(pModule.source)) {
+      if (!pGitignoreFilter(pModule.source)) {
+        return { name: pModule.source, type: "ignored" };
+      }
       return { name: pModule.source, type: "deleted" };
     }
 
@@ -62,8 +86,8 @@ function diffCachedModuleAgainstFileSet(
   - there is a cache and it contains checksums:
     - existing files that are not in the cache => added
     - modules that are in the cache:
-      - don't exist anymore => deleted TODO: 
-        we might wrongly bump into this for files that are gitignored and that don't have an interesting extension
+      - don't exist anymore => deleted (now with gitignore awareness to prevent false positives)
+      - gitignored files without interesting extensions => ignored (prevents false deletion detection)
       - cached checksum === current checksum => not a change; left out
       - cached checksum !== current checksum => modified
   - there is a cache, but it doesn't contain checksums => same as before, except
@@ -91,9 +115,12 @@ export default function findContentChanges(
     }).filter(hasInterestingExtension(pOptions.extensions)),
   );
 
+  bus.debug("cache: - create gitignore filter");
+  const lGitignoreFilter = createGitignoreFilter(pOptions.baseDir);
+
   bus.debug("cache: - get (cached - new)");
   const lDiffCachedVsNew = pCachedCruiseResult.modules.map(
-    diffCachedModuleAgainstFileSet(lFileSet, pOptions.baseDir),
+    diffCachedModuleAgainstFileSet(lFileSet, pOptions.baseDir, getFileHashSync, lGitignoreFilter),
   );
 
   bus.debug("cache: - get (new - cached)");
