@@ -139,29 +139,112 @@ function addReachesToModule(pModule, pGraph, pIndexedGraph, pReachableRule) {
   return pModule;
 }
 
+/**
+ * Processes dependencies for a single vertex during BFS traversal.
+ * Extracted to reduce nesting depth.
+ *
+ * @param {Object} pVertex - The current vertex
+ * @param {Set<string>} pVisited - Set of visited modules
+ * @param {Set<string>} pReachableModules - Set of reachable modules
+ * @param {Array<string>} pQueue - BFS queue
+ */
+function processDependencies(pVertex, pVisited, pReachableModules, pQueue) {
+  for (let lDependency of pVertex.dependencies) {
+    const lDependencyName = lDependency.name || lDependency.resolved;
+    if (!pVisited.has(lDependencyName)) {
+      pVisited.add(lDependencyName);
+      pReachableModules.add(lDependencyName);
+      pQueue.push(lDependencyName);
+    }
+  }
+}
+
+/**
+ * Calculates all reachable modules from a single source using BFS.
+ *
+ * @param {string} pSourceModule - Source module to start from
+ * @param {IndexedModuleGraph} pIndexedGraph - The indexed graph
+ * @returns {Set<string>} Set of reachable modules
+ */
+function calculateReachableModules(pSourceModule, pIndexedGraph) {
+  const lReachableModules = new Set();
+  const lQueue = [pSourceModule];
+  const lVisited = new Set([pSourceModule]);
+
+  while (lQueue.length > 0) {
+    const lCurrentSource = lQueue.shift();
+    const lCurrentVertex = pIndexedGraph.findVertexByName(lCurrentSource);
+
+    if (lCurrentVertex) {
+      processDependencies(lCurrentVertex, lVisited, lReachableModules, lQueue);
+    }
+  }
+
+  return lReachableModules;
+}
+
+/**
+ * Pre-calculates all reachable modules from each "from" module using BFS.
+ * This is more efficient than calling getPath for each module individually.
+ *
+ * @param {Array} pFromModules - Array of modules to calculate reachability from
+ * @param {IndexedModuleGraph} pIndexedGraph - The indexed graph
+ * @returns {Map<string, Set<string>>} Map from source module to set of reachable modules
+ */
+function calculateReachabilityMap(pFromModules, pIndexedGraph) {
+  const lReachabilityMap = new Map();
+
+  for (let lFromModule of pFromModules) {
+    const lReachableModules = calculateReachableModules(
+      lFromModule.source,
+      pIndexedGraph,
+    );
+    lReachabilityMap.set(lFromModule.source, lReachableModules);
+  }
+
+  return lReachabilityMap;
+}
+
 function addReachableToModule(
   pModule,
   pIndexedGraph,
   pReachableRule,
-  pFilteredFromModules,
+  pContext,
 ) {
   let lFound = false;
 
-  for (let lFromModule of pFilteredFromModules) {
+  for (let lFromModule of pContext.fromModules) {
     if (
       !lFound &&
       pModule.source !== lFromModule.source &&
       isModuleInRuleTo(pReachableRule, pModule, lFromModule)
     ) {
-      const lPath = pIndexedGraph.getPath(lFromModule.source, pModule.source);
-
-      lFound = lPath.length > 0;
-      pModule.reachable = mergeReachableProperties(
-        pModule,
-        pReachableRule,
-        lPath,
+      // Use pre-calculated reachability map for fast lookup
+      const lReachableModules = pContext.reachabilityMap.get(
         lFromModule.source,
       );
+      const lIsReachable =
+        lReachableModules && lReachableModules.has(pModule.source);
+
+      if (lIsReachable) {
+        // Only call getPath when we know the module is reachable
+        const lPath = pIndexedGraph.getPath(lFromModule.source, pModule.source);
+        lFound = lPath.length > 0;
+        pModule.reachable = mergeReachableProperties(
+          pModule,
+          pReachableRule,
+          lPath,
+          lFromModule.source,
+        );
+      } else {
+        // Module is not reachable, set empty path
+        pModule.reachable = mergeReachableProperties(
+          pModule,
+          pReachableRule,
+          [],
+          lFromModule.source,
+        );
+      }
     }
   }
   return pModule;
@@ -169,6 +252,17 @@ function addReachableToModule(
 
 function addReachabilityToGraph(pGraph, pIndexedGraph, pReachableRule) {
   const lFromModules = pGraph.filter(isModuleInRuleFrom(pReachableRule));
+
+  // Pre-calculate reachability map for performance optimization
+  // This avoids redundant path-finding operations for each module
+  const lReachabilityMap = calculateReachabilityMap(
+    lFromModules,
+    pIndexedGraph,
+  );
+  const lContext = {
+    fromModules: lFromModules,
+    reachabilityMap: lReachabilityMap,
+  };
 
   return pGraph.map((pModule) => {
     let lClonedModule = structuredClone(pModule);
@@ -186,7 +280,7 @@ function addReachabilityToGraph(pGraph, pIndexedGraph, pReachableRule) {
         lClonedModule,
         pIndexedGraph,
         pReachableRule,
-        lFromModules,
+        lContext,
       );
     }
     return lClonedModule;
